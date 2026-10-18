@@ -1,7 +1,10 @@
 import os
+import subprocess
 import time
 
 from sqlalchemy import create_engine, text
+
+os.environ.setdefault("FLASK_APP", "wsgi.py")
 
 
 def wait_for_db(uri, attempts=40, delay=2):
@@ -19,20 +22,17 @@ def wait_for_db(uri, attempts=40, delay=2):
     raise SystemExit(f"MySQL indisponível: {last_error}")
 
 
-def create_schema():
-    from app import create_app
-    from app.extensions import db
-
-    app = create_app()
-    with app.app_context():
-        db.create_all()
-        print("Esquema criado ou já existente.", flush=True)
+def run_migrations():
+    print("A aplicar migrações (flask db upgrade)...", flush=True)
+    subprocess.check_call(["flask", "db", "upgrade"])
+    print("Migrações em dia.", flush=True)
 
 
 if __name__ == "__main__":
     database_url = os.environ["DATABASE_URL"]
     wait_for_db(database_url)
-    create_schema()
+    run_migrations()
+    # Seeders: ainda não. Entram neste ponto quando forem definidos.
     os.execvp(
         "gunicorn",
         ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "wsgi:app"],

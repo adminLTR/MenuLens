@@ -2,10 +2,8 @@ import { Component } from '../core/component.js';
 import {
   createRenderer,
   createScene,
-  startWebXRAR,
   startCameraFallback,
   stopStream,
-  isWebXRARAvailable,
 } from '../services/xr.js';
 
 export class ArView extends Component {
@@ -14,9 +12,7 @@ export class ArView extends Component {
     this.renderer = null;
     this.scene = null;
     this.camera = null;
-    this.session = null;
     this.stream = null;
-    this.frameId = null;
   }
 
   render() {
@@ -25,17 +21,16 @@ export class ArView extends Component {
         <video class="ar__video" data-video playsinline muted autoplay hidden></video>
         <canvas class="ar__canvas" data-canvas></canvas>
         <div class="ar__hud">
-          <p class="ar__status" data-status>A câmara abre neste aparelho. Aponte para o cardápio quando estiver pronto.</p>
+          <p class="ar__status" data-status></p>
           <div class="ar__actions">
-            <button class="btn btn-primary btn-lg" type="button" data-start-xr>Abrir câmara AR</button>
-            <button class="btn btn-outline-light" type="button" data-start-cam hidden>Usar câmara neste computador</button>
+            <button class="btn btn-primary btn-lg" type="button" data-start-cam>Abrir câmara</button>
           </div>
         </div>
       </section>
     `;
   }
 
-  async bind() {
+  bind() {
     const canvas = this.$('[data-canvas]');
     this.renderer = createRenderer(canvas);
     const { scene, camera } = createScene();
@@ -53,17 +48,20 @@ export class ArView extends Component {
       this.renderer.render(this.scene, this.camera);
     });
 
-    const xrOk = await isWebXRARAvailable();
-    const camBtn = this.$('[data-start-cam]');
-    if (!xrOk) {
-      camBtn.hidden = false;
-      this.setStatus(
-        'A AR pelo WebXR pede Chrome no Android. Neste computador você já pode ligar a câmara para testar o enquadramento.',
-      );
+    this.$('[data-start-cam]').addEventListener('click', () => this.openCamera());
+    this.describeContext();
+  }
+
+  describeContext() {
+    if (window.isSecureContext) {
+      this.setStatus('Aponte para o cardápio e toque em Abrir câmara. O Chrome vai pedir permissão nesta página.');
+      return;
     }
 
-    this.$('[data-start-xr]').addEventListener('click', () => this.openXR());
-    camBtn.addEventListener('click', () => this.openCamera());
+    const secureUrl = `https://${window.location.host}${window.location.pathname}${window.location.hash}`;
+    this.setStatus(
+      `O Chrome no telemóvel só liga a câmara em HTTPS. Esta página está em HTTP, por isso recusa mesmo com a câmara já permitida no Google. Abra ${secureUrl} e aceite o certificado, ou em chrome://flags ative "Insecure origins treated as secure" para ${window.location.origin}.`,
+    );
   }
 
   setStatus(text) {
@@ -71,46 +69,41 @@ export class ArView extends Component {
     if (el) el.textContent = text;
   }
 
-  async openXR() {
-    this.setStatus('A pedir acesso à câmara…');
-    try {
-      const overlay = document.getElementById('xr-overlay');
-      this.session = await startWebXRAR(this.renderer, overlay);
-      this.session.addEventListener('end', () => {
-        this.session = null;
-        this.setStatus('Sessão encerrada. Pode abrir de novo quando quiser.');
-        this.$('.ar__hud').hidden = false;
-      });
-      this.$('.ar__hud').hidden = true;
-      this.setStatus('Câmara aberta. Aponte para a mesa.');
-    } catch (error) {
-      if (error.code === 'WEBXR_UNAVAILABLE') {
-        this.setStatus(
-          'Este aparelho ainda não abre a AR do WebXR. No Android, use o Chrome em HTTPS. Ou ligue a câmara abaixo para testar.',
-        );
-        this.$('[data-start-cam]').hidden = false;
-        return;
-      }
-      this.setStatus('Não foi possível abrir a AR. Confirme a permissão da câmara e tente de novo.');
+  cameraErrorMessage(error) {
+    const code = error?.code || error?.name;
+    if (code === 'INSECURE_CONTEXT') {
+      return `Sem HTTPS o Chrome bloqueia a câmara. Abra https://${window.location.host} e aceite o aviso de certificado.`;
     }
+    if (code === 'MEDIA_UNSUPPORTED') {
+      return 'Este navegador não expõe a câmara. No telemóvel use o Chrome.';
+    }
+    if (code === 'NotAllowedError' || code === 'PermissionDeniedError') {
+      return 'Esta página ainda não tem permissão. No Chrome: ícone à esquerda do endereço → Permissões → Câmara → Permitir, e volte a tocar no botão. A permissão do aplicativo Google não vale para este site.';
+    }
+    if (code === 'NotFoundError' || code === 'OverconstrainedError') {
+      return 'Não foi encontrada uma câmara neste aparelho.';
+    }
+    if (code === 'NotReadableError') {
+      return 'A câmara está ocupada por outra aplicação. Feche-a e tente de novo.';
+    }
+    return 'Não foi possível ligar a câmara. Confirme a permissão desta página no Chrome e tente de novo.';
   }
 
   async openCamera() {
+    this.setStatus('A pedir acesso à câmara…');
     try {
       const video = this.$('[data-video]');
       this.stream = await startCameraFallback(video);
       video.hidden = false;
       this.$('.ar__hud').hidden = true;
-      this.setStatus('Câmara ligada. Este modo é só para testar o enquadramento.');
-    } catch {
-      this.setStatus('A câmara foi recusada. Permita o acesso nas definições do navegador.');
+    } catch (error) {
+      this.setStatus(this.cameraErrorMessage(error));
     }
   }
 
   unmount() {
     window.removeEventListener('resize', this.onResize);
     this.renderer?.setAnimationLoop(null);
-    this.session?.end?.();
     stopStream(this.stream);
     this.renderer?.dispose();
     super.unmount();

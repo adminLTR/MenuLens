@@ -1,0 +1,1 @@
+Migrações Flask-Migrate / Alembic. O entrypoint do Docker corre `flask db upgrade`.

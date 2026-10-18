@@ -51,14 +51,43 @@ export async function startWebXRAR(renderer, overlayRoot) {
   return session;
 }
 
+export function assertCameraContext() {
+  if (!window.isSecureContext) {
+    const error = new Error('INSECURE_CONTEXT');
+    error.code = 'INSECURE_CONTEXT';
+    throw error;
+  }
+  if (!navigator.mediaDevices?.getUserMedia) {
+    const error = new Error('MEDIA_UNSUPPORTED');
+    error.code = 'MEDIA_UNSUPPORTED';
+    throw error;
+  }
+}
+
 export async function startCameraFallback(videoEl) {
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 } },
-    audio: false,
-  });
-  videoEl.srcObject = stream;
-  await videoEl.play();
-  return stream;
+  assertCameraContext();
+
+  const attempts = [
+    { video: { facingMode: { ideal: 'environment' } }, audio: false },
+    { video: true, audio: false },
+  ];
+
+  let lastError;
+  for (const constraints of attempts) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      videoEl.setAttribute('playsinline', '');
+      videoEl.setAttribute('autoplay', '');
+      videoEl.muted = true;
+      videoEl.srcObject = stream;
+      await videoEl.play();
+      return stream;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError;
 }
 
 export function stopStream(stream) {
