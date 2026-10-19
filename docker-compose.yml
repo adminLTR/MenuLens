@@ -21,6 +21,7 @@ services:
     environment:
       PYTHONUNBUFFERED: "1"
       FLASK_APP: wsgi.py
+    # GEMINI_API_KEY y el resto de secretos entran por env_file (backend/.env).
     volumes:
       - ./backend:/app
     ports:

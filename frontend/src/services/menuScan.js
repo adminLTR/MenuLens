@@ -245,17 +245,14 @@ export async function scanMenuImage(blob, { menuId, crop = false } = {}) {
   const form = new FormData();
   form.append('image', blob, crop ? 'crop.jpg' : 'menu.jpg');
   if (menuId) form.append('menu_id', String(menuId));
-  if (crop) {
-    form.append('crop', '1');
-    form.append('debug', '1');
-  }
+  if (crop) form.append('crop', '1');
 
   const base = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
   const response = await fetch(`${base}/menus/scan`, {
     method: 'POST',
     body: form,
     headers: apiHeaders(),
-    signal: timeoutSignal(crop ? 30000 : SCAN_TIMEOUT_MS),
+    signal: timeoutSignal(crop ? 45000 : SCAN_TIMEOUT_MS),
   });
 
   const payload = await response.json().catch(() => ({}));

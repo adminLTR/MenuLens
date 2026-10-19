@@ -1,35 +1,34 @@
-import base64
-from io import BytesIO
-
 from flask import current_app
 from rapidfuzz import fuzz
 from sqlalchemy.orm import joinedload
 
 from app.extensions import db
 from app.models.dish import Dish
-from app.services.ocr_engine import OcrUnavailableError, load_image, read_lines
+from app.services.gemini_dish import enrich_dish
+from app.services.ocr_engine import OcrUnavailableError, clean_dish_name, load_image, read_lines
 
 
 class MenuScanService:
     @staticmethod
-    def scan(image_bytes: bytes, menu_id=None, crop=False, debug=False):
+    def scan(image_bytes: bytes, menu_id=None, crop=False):
         image = load_image(image_bytes, crop=crop)
         try:
-            lines, engine, preview = read_lines(image, crop=crop)
+            lines, engine = read_lines(image, crop=crop)
         except OcrUnavailableError as exc:
             raise ValueError("ocr_unavailable") from exc
 
         dishes = _load_dishes(menu_id)
         threshold = int(current_app.config.get("OCR_MATCH_THRESHOLD") or 78)
         items = []
-        names = []
         for index, line in enumerate(lines):
-            match = _best_match(line.text, dishes, threshold)
-            names.append(line.text)
+            text = clean_dish_name(line.text) if crop else line.text
+            if crop and not text:
+                continue
+            match = _best_match(text, dishes, threshold)
             items.append(
                 {
                     "id": f"ocr-{index}",
-                    "text": line.text,
+                    "text": text,
                     "translated_name": match["name"] if match else None,
                     "confidence": round(line.confidence, 3),
                     "bbox": {
@@ -43,26 +42,25 @@ class MenuScanService:
                 }
             )
 
-        print(f"[menus/scan] pratos={names}", flush=True)
-
-        dish_name = "\n".join(item["text"] for item in items if item.get("text")) or None
-        result = {
+        ocr_text = "\n".join(item["text"] for item in items if item.get("text")) or None
+        nutrition = enrich_dish(ocr_text) if crop and ocr_text else None
+        print(
+            f"[menus/scan] nutrition={nutrition.get('name') if nutrition else None}",
+            flush=True,
+        )
+        if crop:
+            return {
+                "engine": engine,
+                "menu_id": menu_id,
+                "nutrition": nutrition,
+            }
+        return {
             "engine": engine,
             "menu_id": menu_id,
             "item_count": len(items),
-            "dish_name": dish_name,
+            "dish_name": ocr_text,
             "items": items,
         }
-        if debug and preview is not None:
-            result["debug_image"] = _preview_data_url(preview)
-        return result
-
-
-def _preview_data_url(image) -> str:
-    buffer = BytesIO()
-    image.convert("L").save(buffer, format="PNG")
-    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
-    return f"data:image/png;base64,{encoded}"
 
 
 def _load_dishes(menu_id):

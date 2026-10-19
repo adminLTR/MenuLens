@@ -69,6 +69,22 @@ function fallbackBox(point) {
   });
 }
 
+function chip(text) {
+  const node = document.createElement('span');
+  node.className = 'menu-card__chip';
+  node.textContent = text;
+  return node;
+}
+
+function section(title, content) {
+  const wrap = document.createElement('div');
+  const label = document.createElement('p');
+  label.className = 'menu-card__facts-kicker';
+  label.textContent = title;
+  wrap.append(label, content);
+  return wrap;
+}
+
 function resizeBox(box, handle, dx, dy) {
   let { x, y, w, h } = box;
   if (handle.includes('w')) {
@@ -118,7 +134,6 @@ export class ArView extends Component {
     this.pinchActive = false;
     this.ocrDismissed = false;
     this.ocrSeq = 0;
-    this.ocrDebugUrl = null;
   }
 
   render() {
@@ -163,11 +178,11 @@ export class ArView extends Component {
             <button class="menu-card__result-close" type="button" data-dish-result-close aria-label="Cerrar">×</button>
             <div class="menu-card__loading" data-dish-loading hidden>
               <span class="menu-card__spinner" aria-hidden="true"></span>
-              <p>Leyendo el plato…</p>
+              <p>Analizando el plato…</p>
             </div>
-            <img class="menu-card__ocr-debug" data-ocr-debug alt="Recorte que lee el OCR" hidden>
             <p class="menu-card__result-name" data-dish-name></p>
             <p class="menu-card__result-meta" data-dish-meta></p>
+            <div class="menu-card__facts" data-dish-facts hidden></div>
           </div>
         </aside>
       </section>
@@ -753,7 +768,7 @@ export class ArView extends Component {
     }
     const loading = this.$('[data-dish-loading]');
     if (loading) loading.hidden = true;
-    this.setOcrDebug(null);
+    this.renderNutrition(null);
   }
 
   showDishLoading() {
@@ -768,24 +783,10 @@ export class ArView extends Component {
     if (loading) loading.hidden = false;
     if (title) title.textContent = '';
     if (extra) extra.textContent = '';
-    this.setOcrDebug(null);
+    this.renderNutrition(null);
   }
 
-  setOcrDebug(dataUrl) {
-    const preview = this.$('[data-ocr-debug]');
-    if (!preview) return;
-    if (!dataUrl) {
-      preview.hidden = true;
-      preview.removeAttribute('src');
-      this.ocrDebugUrl = null;
-      return;
-    }
-    this.ocrDebugUrl = dataUrl;
-    preview.src = dataUrl;
-    preview.hidden = false;
-  }
-
-  showDishResult(name, meta, debugImage) {
+  showDishResult(name, meta, nutrition) {
     if (this.ocrDismissed) return;
     const result = this.$('[data-dish-result]');
     const loading = this.$('[data-dish-loading]');
@@ -795,9 +796,66 @@ export class ArView extends Component {
     result.hidden = false;
     result.classList.remove('is-loading');
     if (loading) loading.hidden = true;
-    title.textContent = name;
-    if (extra) extra.textContent = meta || '';
-    this.setOcrDebug(debugImage || null);
+    title.textContent = nutrition?.name || name;
+    if (extra) extra.textContent = nutrition ? '' : meta || '';
+    this.renderNutrition(nutrition);
+  }
+
+  renderNutrition(info) {
+    const root = this.$('[data-dish-facts]');
+    if (!root) return;
+    root.replaceChildren();
+    if (!info) {
+      root.hidden = true;
+      return;
+    }
+    root.hidden = false;
+
+    const nutrients = [
+      ['Calorías', info.calories, 'kcal'],
+      ['Carbohidratos', info.carbohydrates, 'g'],
+      ['Grasas', info.fats, 'g'],
+      ['Proteínas', info.proteins, 'g'],
+      ['Fibra', info.fiber, 'g'],
+    ].filter((item) => item[1] != null);
+
+    if (nutrients.length) {
+      const grid = document.createElement('div');
+      grid.className = 'menu-card__facts-grid';
+      nutrients.forEach(([label, value, unit]) => {
+        const fact = document.createElement('div');
+        fact.className = 'menu-card__fact';
+        const amount = document.createElement('strong');
+        amount.className = 'menu-card__fact-value';
+        amount.textContent = `${value} ${unit}`;
+        const caption = document.createElement('span');
+        caption.className = 'menu-card__fact-label';
+        caption.textContent = label;
+        fact.append(amount, caption);
+        grid.append(fact);
+      });
+      root.append(grid);
+    }
+
+    const tags = document.createElement('div');
+    tags.className = 'menu-card__chips';
+    if (info.flavor) tags.append(chip(info.flavor));
+    if (info.spice_level) tags.append(chip(`Picante: ${info.spice_level}`));
+    if (tags.childNodes.length) root.append(section('Perfil', tags));
+
+    if (info.associated_allergies?.length) {
+      const chips = document.createElement('div');
+      chips.className = 'menu-card__chips';
+      info.associated_allergies.forEach((item) => chips.append(chip(item)));
+      root.append(section('Alergias', chips));
+    }
+
+    if (info.basic_ingredients?.length) {
+      const chips = document.createElement('div');
+      chips.className = 'menu-card__chips';
+      info.basic_ingredients.forEach((item) => chips.append(chip(item)));
+      root.append(section('Ingredientes', chips));
+    }
   }
 
   async confirmDish() {
@@ -815,23 +873,15 @@ export class ArView extends Component {
       const blob = await snapshotToBlob(crop, { quality: 0.95 });
       const payload = await scanMenuImage(blob, { crop: true });
       if (seq !== this.ocrSeq) return;
-      const texts = (payload.items || []).map((item) => item.text).filter(Boolean);
-      const name = payload.dish_name || texts.join('\n');
-      const debugImage = payload.debug_image || '';
-      if (!name) {
+      const nutrition = payload.nutrition || null;
+      if (!nutrition?.name) {
         this.showDishResult(
-          'No pude leer el recuadro.',
-          'Toque de nuevo el plato e intente otra vez.',
-          debugImage,
+          'No pude analizar el plato.',
+          'Toque de nuevo el recuadro e intente otra vez.',
         );
         return;
       }
-      const match = payload.items?.[0]?.translated_name;
-      this.showDishResult(
-        name,
-        match && match !== name ? match : '',
-        debugImage,
-      );
+      this.showDishResult(nutrition.name, '', nutrition);
     } catch {
       if (seq !== this.ocrSeq) return;
       this.showDishResult(

@@ -22,3 +22,5 @@ class Config:
     OCR_LANGS = os.getenv("OCR_LANGS", "por+eng+spa")
     OCR_MATCH_THRESHOLD = int(os.getenv("OCR_MATCH_THRESHOLD", "78"))
     TESSERACT_CMD = os.getenv("TESSERACT_CMD", "")
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+    GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")

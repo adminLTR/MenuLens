@@ -39,18 +39,18 @@ def _config(key: str, default: str = "") -> str:
     return os.getenv(key, default)
 
 
-def read_lines(image: Image.Image, crop: bool = False) -> tuple[list[OcrLine], str, Image.Image | None]:
+def read_lines(image: Image.Image, crop: bool = False) -> tuple[list[OcrLine], str]:
     engine = (_config("OCR_ENGINE", "tesseract") or "tesseract").lower()
     langs = _config("OCR_LANGS", "por+eng+spa") or "por+eng+spa"
     if crop:
         prepared = _prepare_dish_crop(image)
-        return _read_tesseract_crop(image, langs, prepared), "tesseract-crop", prepared
+        return _read_tesseract_crop(image, langs, prepared), "tesseract-crop"
     if engine == "easyocr":
         try:
-            return _read_easyocr(image, langs), "easyocr", None
+            return _read_easyocr(image, langs), "easyocr"
         except Exception as exc:
             logger.warning("EasyOCR falhou, a usar Tesseract: %s", exc)
-    return _read_tesseract(image, langs), "tesseract", None
+    return _read_tesseract(image, langs), "tesseract"
 
 
 def _scale_image(image: Image.Image) -> Image.Image:
@@ -133,13 +133,22 @@ def _read_tesseract_crop(image: Image.Image, langs: str, prepared: Image.Image) 
         return []
     best = max(candidates, key=lambda item: (len(re.findall(r"[A-Za-zÁÉÍÓÚÑáéíóúñ]", item)), len(item)))
     return [
-        OcrLine(text=best, x=0.04, y=0.2, w=0.92, h=0.55, confidence=0.5),
+        OcrLine(text=clean_dish_name(best), x=0.04, y=0.2, w=0.92, h=0.55, confidence=0.5),
     ]
 
 
 def _plain_ocr_text(text: str) -> str:
     lines = [re.sub(r"[ \t]+", " ", line).strip() for line in (text or "").splitlines()]
     return "\n".join(line for line in lines if line)
+
+
+def clean_dish_name(text: str) -> str:
+    cleaned = (text or "").replace("\n", " ")
+    cleaned = cleaned.replace(".", " ")
+    cleaned = re.sub(r"[\"“”„‟«»‹›`´'|~*_#^=•·,;:!?()\[\]{}]+", " ", cleaned)
+    cleaned = re.sub(r"[^\wÁÉÍÓÚÜÑáéíóúüñ&/'’\- ]+", " ", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" -/'")
+    return cleaned
 
 
 def _read_tesseract(image: Image.Image, langs: str) -> list[OcrLine]:

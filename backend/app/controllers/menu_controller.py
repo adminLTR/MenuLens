@@ -32,9 +32,8 @@ def scan_menu():
 
     menu_id = request.form.get("menu_id", type=int)
     crop = str(request.form.get("crop") or "").lower() in {"1", "true", "yes"}
-    debug = str(request.form.get("debug") or "").lower() in {"1", "true", "yes"}
     try:
-        result = MenuScanService.scan(payload, menu_id=menu_id, crop=crop, debug=debug)
+        result = MenuScanService.scan(payload, menu_id=menu_id, crop=crop)
     except ValueError as exc:
         code = str(exc)
         if code == "invalid_image":
