@@ -33,6 +33,12 @@ export async function isWebXRARAvailable() {
   }
 }
 
+function sessionHasFeature(session, feature) {
+  const features = session.enabledFeatures;
+  if (!features) return false;
+  return typeof features.includes === 'function' ? features.includes(feature) : false;
+}
+
 export async function startWebXRAR(renderer, overlayRoot) {
   const supported = await isWebXRARAvailable();
   if (!supported) {
@@ -41,14 +47,114 @@ export async function startWebXRAR(renderer, overlayRoot) {
     throw error;
   }
 
-  const session = await navigator.xr.requestSession('immersive-ar', {
-    optionalFeatures: ['dom-overlay', 'hit-test', 'light-estimation'],
-    domOverlay: { root: overlayRoot },
-  });
+  const attempts = [
+    {
+      requiredFeatures: ['hit-test', 'dom-overlay', 'camera-access'],
+      optionalFeatures: ['light-estimation', 'anchors'],
+      domOverlay: { root: overlayRoot },
+    },
+    {
+      requiredFeatures: ['hit-test', 'dom-overlay'],
+      optionalFeatures: ['camera-access', 'light-estimation', 'anchors'],
+      domOverlay: { root: overlayRoot },
+    },
+    {
+      requiredFeatures: ['hit-test'],
+      optionalFeatures: ['dom-overlay', 'camera-access', 'light-estimation', 'anchors'],
+      domOverlay: { root: overlayRoot },
+    },
+  ];
+
+  let session = null;
+  let lastError;
+  for (const options of attempts) {
+    try {
+      session = await navigator.xr.requestSession('immersive-ar', options);
+      break;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  if (!session) {
+    const error = lastError || new Error('WEBXR_UNAVAILABLE');
+    error.code = error.code || 'WEBXR_UNAVAILABLE';
+    throw error;
+  }
+
+  if (!session.requestHitTestSource) {
+    await session.end().catch(() => {});
+    const error = new Error('HIT_TEST_UNAVAILABLE');
+    error.code = 'HIT_TEST_UNAVAILABLE';
+    throw error;
+  }
 
   renderer.xr.setReferenceSpaceType('local');
   await renderer.xr.setSession(session);
+  session.hasCameraAccess = sessionHasFeature(session, 'camera-access');
   return session;
+}
+
+export async function createViewerHitTestSource(session) {
+  const viewerSpace = await session.requestReferenceSpace('viewer');
+  return session.requestHitTestSource({ space: viewerSpace });
+}
+
+export function copyXrCameraToCanvas(renderer, frame, canvas, { maxSide = 960 } = {}) {
+  const session = renderer.xr.getSession();
+  const gl = renderer.getContext();
+  const refSpace = renderer.xr.getReferenceSpace();
+  if (!session || !frame || !gl || !refSpace) return null;
+  if (typeof XRWebGLBinding === 'undefined') return null;
+
+  const pose = frame.getViewerPose(refSpace);
+  const view = pose?.views?.[0];
+  const xrCamera = view?.camera;
+  if (!xrCamera) return null;
+
+  const prevFb = gl.getParameter(gl.FRAMEBUFFER_BINDING);
+  const prevViewport = gl.getParameter(gl.VIEWPORT);
+  const framebuffer = gl.createFramebuffer();
+
+  try {
+    const binding = new XRWebGLBinding(session, gl);
+    if (typeof binding.getCameraImage !== 'function') return null;
+    const texture = binding.getCameraImage(xrCamera);
+    const width = xrCamera.width;
+    const height = xrCamera.height;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, framebuffer);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
+    if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) return null;
+
+    const pixels = new Uint8Array(width * height * 4);
+    gl.viewport(0, 0, width, height);
+    gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+
+    const scale = Math.min(1, maxSide / Math.max(width, height));
+    const outW = Math.max(1, Math.round(width * scale));
+    const outH = Math.max(1, Math.round(height * scale));
+    const full = document.createElement('canvas');
+    full.width = width;
+    full.height = height;
+    const fullCtx = full.getContext('2d', { willReadFrequently: true });
+    const imageData = fullCtx.createImageData(width, height);
+    const row = width * 4;
+    for (let y = 0; y < height; y += 1) {
+      const src = (height - 1 - y) * row;
+      imageData.data.set(pixels.subarray(src, src + row), y * row);
+    }
+    fullCtx.putImageData(imageData, 0, 0);
+    canvas.width = outW;
+    canvas.height = outH;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(full, 0, 0, outW, outH);
+    return { width: outW, height: outH, sourceWidth: width, sourceHeight: height };
+  } catch {
+    return null;
+  } finally {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, prevFb);
+    if (prevViewport) gl.viewport(prevViewport[0], prevViewport[1], prevViewport[2], prevViewport[3]);
+    gl.deleteFramebuffer(framebuffer);
+  }
 }
 
 export function assertCameraContext() {

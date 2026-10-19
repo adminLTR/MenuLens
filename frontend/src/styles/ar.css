@@ -36,6 +36,12 @@
   box-shadow: 0 0 0 999px rgba(13, 10, 8, 0.28);
 }
 
+.ar__xr {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+}
+
 .ar__overlay {
   z-index: 3;
   cursor: pointer;
@@ -110,14 +116,20 @@
   min-height: 0;
   position: absolute;
   inset: auto 0 0;
-  padding: 1.25rem 1rem 1.5rem;
-  background: linear-gradient(180deg, transparent, rgba(13, 10, 8, 0.88));
+  padding: 1rem 1.25rem 1.25rem;
+  background: linear-gradient(180deg, transparent, rgba(13, 10, 8, 0.72));
+  pointer-events: none;
+}
+
+.ar--has-card .ar__hud--live {
+  padding-bottom: 3.4rem;
 }
 
 .ar__status {
-  max-width: 28rem;
+  max-width: 22rem;
   margin: 0;
-  font-size: 1.05rem;
+  font-size: 0.92rem;
+  line-height: 1.35;
 }
 
 .ar__actions {
@@ -159,4 +171,95 @@
 
 .btn-outline-light {
   border-radius: 999px;
+}
+
+.menu-card-toggle {
+  position: absolute;
+  z-index: 6;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2.6rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: rgba(20, 14, 10, 0.92);
+  color: #fffaf4;
+  font-size: 1.1rem;
+  line-height: 2.6rem;
+}
+
+.menu-card {
+  position: absolute;
+  z-index: 8;
+  inset: 0;
+  background: #140e0a;
+  color: #fffaf4;
+}
+
+.menu-card__image {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #fffaf4;
+}
+
+.menu-card__fab,
+.menu-card__nav {
+  position: absolute;
+  z-index: 2;
+  width: 2.4rem;
+  height: 2.4rem;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(20, 14, 10, 0.72);
+  color: #fffaf4;
+  font-size: 1.35rem;
+  line-height: 2.4rem;
+}
+
+.menu-card__fab--close {
+  top: 0.7rem;
+  right: 0.7rem;
+}
+
+.menu-card__fab--add {
+  top: 0.7rem;
+  left: 0.7rem;
+}
+
+.menu-card__fab--remove {
+  top: 0.7rem;
+  left: 3.4rem;
+  display: grid;
+  place-items: center;
+}
+
+.menu-card__nav--prev {
+  left: 0.4rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 1.8rem;
+}
+
+.menu-card__nav--next {
+  right: 0.4rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 1.8rem;
+}
+
+.menu-card__index {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  bottom: 0.8rem;
+  transform: translateX(-50%);
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(20, 14, 10, 0.62);
+  font-size: 0.8rem;
 }
