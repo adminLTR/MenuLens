@@ -23,7 +23,7 @@ export function createMenuEnhancer() {
   };
 
   return {
-    async enhance(imageData, timeoutMs = 4000) {
+    async enhance(imageData, timeoutMs = 12000) {
       const id = (seq += 1);
       const copy = new Uint8ClampedArray(imageData.data);
       return new Promise((resolve) => {

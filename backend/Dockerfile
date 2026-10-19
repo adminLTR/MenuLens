@@ -9,6 +9,8 @@ RUN apt-get update \
         tesseract-ocr-por \
         tesseract-ocr-eng \
         tesseract-ocr-spa \
+        libglib2.0-0 \
+        libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

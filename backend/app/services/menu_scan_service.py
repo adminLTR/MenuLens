@@ -1,3 +1,6 @@
+import base64
+from io import BytesIO
+
 from flask import current_app
 from rapidfuzz import fuzz
 from sqlalchemy.orm import joinedload
@@ -9,10 +12,10 @@ from app.services.ocr_engine import OcrUnavailableError, load_image, read_lines
 
 class MenuScanService:
     @staticmethod
-    def scan(image_bytes: bytes, menu_id=None, crop=False):
-        image = load_image(image_bytes)
+    def scan(image_bytes: bytes, menu_id=None, crop=False, debug=False):
+        image = load_image(image_bytes, crop=crop)
         try:
-            lines, engine = read_lines(image, crop=crop)
+            lines, engine, preview = read_lines(image, crop=crop)
         except OcrUnavailableError as exc:
             raise ValueError("ocr_unavailable") from exc
 
@@ -42,12 +45,24 @@ class MenuScanService:
 
         print(f"[menus/scan] pratos={names}", flush=True)
 
-        return {
+        dish_name = "\n".join(item["text"] for item in items if item.get("text")) or None
+        result = {
             "engine": engine,
             "menu_id": menu_id,
             "item_count": len(items),
+            "dish_name": dish_name,
             "items": items,
         }
+        if debug and preview is not None:
+            result["debug_image"] = _preview_data_url(preview)
+        return result
+
+
+def _preview_data_url(image) -> str:
+    buffer = BytesIO()
+    image.convert("L").save(buffer, format="PNG")
+    encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+    return f"data:image/png;base64,{encoded}"
 
 
 def _load_dishes(menu_id):

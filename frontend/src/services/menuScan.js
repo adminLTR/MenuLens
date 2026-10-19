@@ -65,6 +65,80 @@ export function unprojectCoverPoint(clientX, clientY, container, imageW, imageH)
   return { x: nx, y: ny };
 }
 
+export function containRect(containerW, containerH, imageW, imageH) {
+  const scale = Math.min(containerW / imageW, containerH / imageH);
+  const drawW = imageW * scale;
+  const drawH = imageH * scale;
+  return {
+    scale,
+    offsetX: (containerW - drawW) / 2,
+    offsetY: (containerH - drawH) / 2,
+    drawW,
+    drawH,
+  };
+}
+
+export function mapContainBox(bbox, container, imageW, imageH) {
+  const { offsetX, offsetY, drawW, drawH } = containRect(
+    container.clientWidth,
+    container.clientHeight,
+    imageW,
+    imageH,
+  );
+  return {
+    left: offsetX + bbox.x * drawW,
+    top: offsetY + bbox.y * drawH,
+    width: Math.max(bbox.w * drawW, 28),
+    height: Math.max(bbox.h * drawH, 22),
+  };
+}
+
+export function unprojectContainPoint(clientX, clientY, container, imageW, imageH, { clamp = false } = {}) {
+  const rect = container.getBoundingClientRect();
+  const { offsetX, offsetY, drawW, drawH } = containRect(
+    container.clientWidth,
+    container.clientHeight,
+    imageW,
+    imageH,
+  );
+  const nx = (clientX - rect.left - offsetX) / drawW;
+  const ny = (clientY - rect.top - offsetY) / drawH;
+  if (!clamp && (nx < 0 || ny < 0 || nx > 1 || ny > 1)) return null;
+  return {
+    x: Math.max(0, Math.min(1, nx)),
+    y: Math.max(0, Math.min(1, ny)),
+  };
+}
+
+export function cropImageRegion(source, bbox, { padX = 0.04, padY = 0.1, maxSide = 1000 } = {}) {
+  const vw = source.naturalWidth || source.videoWidth || source.width;
+  const vh = source.naturalHeight || source.videoHeight || source.height;
+  if (!vw || !vh) {
+    const error = new Error('IMAGE_NOT_READY');
+    error.code = 'IMAGE_NOT_READY';
+    throw error;
+  }
+
+  const x = Math.max(0, bbox.x - bbox.w * padX);
+  const y = Math.max(0, bbox.y - bbox.h * padY);
+  const w = Math.min(1 - x, bbox.w * (1 + padX * 2));
+  const h = Math.min(1 - y, bbox.h * (1 + padY * 2));
+  const sx = Math.floor(x * vw);
+  const sy = Math.floor(y * vh);
+  const sw = Math.max(8, Math.ceil(w * vw));
+  const sh = Math.max(8, Math.ceil(h * vh));
+
+  const targetW = Math.min(maxSide, Math.max(400, sw * 2));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(32, Math.round(targetW));
+  canvas.height = Math.max(28, Math.round((sh / sw) * canvas.width));
+  const context = canvas.getContext('2d');
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = 'high';
+  context.drawImage(source, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+
 export function prepareVideoFrame(video, snapshot, { maxSide = MAX_SIDE } = {}) {
   const sourceW = video.videoWidth;
   const sourceH = video.videoHeight;
@@ -128,28 +202,59 @@ export function cropVideoRegion(source, bbox, { padX = 0.04, padY = 0.2, maxSide
   return canvas;
 }
 
+function apiHeaders() {
+  const headers = {};
+  const raw = sessionStorage.getItem('menulens.session');
+  if (!raw) return headers;
+  try {
+    const user = JSON.parse(raw);
+    if (user?.token) headers.Authorization = `Bearer ${user.token}`;
+  } catch {
+    /* sessão local ainda sem token */
+  }
+  return headers;
+}
+
+export async function captureMenuPage(blob) {
+  const form = new FormData();
+  form.append('image', blob, 'menu.jpg');
+  const base = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
+  const response = await fetch(`${base}/menus/capture`, {
+    method: 'POST',
+    body: form,
+    headers: apiHeaders(),
+    signal: timeoutSignal(45000),
+  });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    const error = new Error(payload.message || 'No se pudo escanear el menú.');
+    error.code = payload.error || 'CAPTURE_FAILED';
+    error.status = response.status;
+    throw error;
+  }
+  const out = await response.blob();
+  if (!out.size) {
+    const error = new Error('La captura llegó vacía.');
+    error.code = 'EMPTY_CAPTURE';
+    throw error;
+  }
+  return out;
+}
+
 export async function scanMenuImage(blob, { menuId, crop = false } = {}) {
   const form = new FormData();
   form.append('image', blob, crop ? 'crop.jpg' : 'menu.jpg');
   if (menuId) form.append('menu_id', String(menuId));
-  if (crop) form.append('crop', '1');
-
-  const headers = {};
-  const raw = sessionStorage.getItem('menulens.session');
-  if (raw) {
-    try {
-      const user = JSON.parse(raw);
-      if (user?.token) headers.Authorization = `Bearer ${user.token}`;
-    } catch {
-      /* sessão local ainda sem token */
-    }
+  if (crop) {
+    form.append('crop', '1');
+    form.append('debug', '1');
   }
 
   const base = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
   const response = await fetch(`${base}/menus/scan`, {
     method: 'POST',
     body: form,
-    headers,
+    headers: apiHeaders(),
     signal: timeoutSignal(crop ? 30000 : SCAN_TIMEOUT_MS),
   });
 

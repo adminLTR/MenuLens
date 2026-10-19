@@ -231,7 +231,7 @@ function looksLikeTappedText(box, width, height) {
   const nw = box.w / width;
   const nh = box.h / height;
   const ratio = box.w / Math.max(box.h, 1);
-  return nw > 0.012 && nw < 0.92 && nh > 0.004 && nh < 0.16 && ratio > 0.65 && ratio < 40;
+  return nw > 0.01 && nw < 0.94 && nh > 0.004 && nh < 0.18 && ratio > 0.55 && ratio < 42;
 }
 
 function prepareBinary(imageData) {

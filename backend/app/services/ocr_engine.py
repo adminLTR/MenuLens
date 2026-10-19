@@ -1,11 +1,12 @@
 import logging
 import os
+import re
 from io import BytesIO
 
 from flask import current_app
-from PIL import Image, ImageChops, ImageOps, ImageStat, UnidentifiedImageError
+from PIL import Image, ImageChops, ImageFilter, ImageOps, ImageStat, UnidentifiedImageError
 
-from app.services.menu_parser import OcrLine, OcrWord, extract_dish_lines, _clean_line_text
+from app.services.menu_parser import OcrLine, OcrWord, extract_dish_lines
 
 logger = logging.getLogger(__name__)
 
@@ -18,14 +19,14 @@ class OcrUnavailableError(RuntimeError):
     pass
 
 
-def load_image(data: bytes) -> Image.Image:
+def load_image(data: bytes, crop: bool = False) -> Image.Image:
     try:
         image = Image.open(BytesIO(data))
         image = ImageOps.exif_transpose(image)
         image = image.convert("RGB")
     except (UnidentifiedImageError, OSError) as exc:
         raise ValueError("invalid_image") from exc
-    return _scale_image(image)
+    return _scale_crop(image) if crop else _scale_image(image)
 
 
 def _config(key: str, default: str = "") -> str:
@@ -38,17 +39,18 @@ def _config(key: str, default: str = "") -> str:
     return os.getenv(key, default)
 
 
-def read_lines(image: Image.Image, crop: bool = False) -> tuple[list[OcrLine], str]:
+def read_lines(image: Image.Image, crop: bool = False) -> tuple[list[OcrLine], str, Image.Image | None]:
     engine = (_config("OCR_ENGINE", "tesseract") or "tesseract").lower()
     langs = _config("OCR_LANGS", "por+eng+spa") or "por+eng+spa"
     if crop:
-        return _read_tesseract_crop(image, langs), "tesseract-crop"
+        prepared = _prepare_dish_crop(image)
+        return _read_tesseract_crop(image, langs, prepared), "tesseract-crop", prepared
     if engine == "easyocr":
         try:
-            return _read_easyocr(image, langs), "easyocr"
+            return _read_easyocr(image, langs), "easyocr", None
         except Exception as exc:
             logger.warning("EasyOCR falhou, a usar Tesseract: %s", exc)
-    return _read_tesseract(image, langs), "tesseract"
+    return _read_tesseract(image, langs), "tesseract", None
 
 
 def _scale_image(image: Image.Image) -> Image.Image:
@@ -66,6 +68,34 @@ def _scale_image(image: Image.Image) -> Image.Image:
     )
 
 
+def _scale_crop(image: Image.Image) -> Image.Image:
+    width, height = image.size
+    longest = max(width, height)
+    scale = 1.0
+    if height < 110:
+        scale = 110 / max(height, 1)
+    if longest * scale < 720:
+        scale = max(scale, min(3.2, 900 / max(longest, 1)))
+    if longest * scale > 1600:
+        scale = 1600 / longest
+    if abs(scale - 1) < 0.04:
+        return image
+    return image.resize(
+        (max(1, int(width * scale)), max(1, int(height * scale))),
+        Image.Resampling.LANCZOS,
+    )
+
+
+def _prepare_dish_crop(image: Image.Image) -> Image.Image:
+    gray = ImageOps.autocontrast(image.convert("L"), cutoff=1)
+    gray = gray.filter(ImageFilter.UnsharpMask(radius=1.3, percent=125, threshold=3))
+    mean = ImageStat.Stat(gray).mean[0]
+    if mean < 90:
+        gray = ImageOps.invert(gray)
+        gray = ImageOps.autocontrast(gray, cutoff=1)
+    return gray
+
+
 def _tesseract_cmd():
     import pytesseract
 
@@ -79,34 +109,37 @@ def _tesseract_cmd():
     return pytesseract
 
 
-def _read_tesseract_crop(image: Image.Image, langs: str) -> list[OcrLine]:
+def _read_tesseract_crop(image: Image.Image, langs: str, prepared: Image.Image) -> list[OcrLine]:
     try:
         pytesseract = _tesseract_cmd()
     except ImportError as exc:
         raise OcrUnavailableError("ocr_unavailable") from exc
 
     lang = _resolve_langs(pytesseract, langs)
-    prepared = _prepare_variants(image)[0]
-    words: list[OcrWord] = []
-    for psm in (7, 6):
-        words.extend(_tesseract_words(pytesseract, prepared, image.size, lang, psm))
-        if words:
-            break
-    lines = extract_dish_lines(_dedupe_words(words))
-    if lines:
-        if len(lines) > 1:
-            lines = [max(lines, key=lambda line: (len(line.text), line.confidence))]
-        return lines
-    try:
-        raw = pytesseract.image_to_string(prepared, lang=lang, config="--oem 3 --psm 7")
-    except pytesseract.TesseractError:
-        raw = ""
-    text = _clean_line_text(raw or "")
-    if not text:
+    candidates = []
+    for psm in (6, 7, 13):
+        try:
+            raw = pytesseract.image_to_string(prepared, lang=lang, config=f"--oem 3 --psm {psm}")
+        except pytesseract.TesseractError:
+            raw = ""
+        text = _plain_ocr_text(raw)
+        if text:
+            candidates.append(text)
+        words = _tesseract_words(pytesseract, prepared, image.size, lang, psm, min_conf=10)
+        joined = _plain_ocr_text(" ".join(word.text for word in words))
+        if joined:
+            candidates.append(joined)
+    if not candidates:
         return []
+    best = max(candidates, key=lambda item: (len(re.findall(r"[A-Za-zÁÉÍÓÚÑáéíóúñ]", item)), len(item)))
     return [
-        OcrLine(text=text, x=0.04, y=0.2, w=0.92, h=0.55, confidence=0.45),
+        OcrLine(text=best, x=0.04, y=0.2, w=0.92, h=0.55, confidence=0.5),
     ]
+
+
+def _plain_ocr_text(text: str) -> str:
+    lines = [re.sub(r"[ \t]+", " ", line).strip() for line in (text or "").splitlines()]
+    return "\n".join(line for line in lines if line)
 
 
 def _read_tesseract(image: Image.Image, langs: str) -> list[OcrLine]:
@@ -147,7 +180,9 @@ def _prepare_variants(image: Image.Image) -> list[Image.Image]:
     return [ImageOps.invert(mask), ImageOps.invert(gray)]
 
 
-def _tesseract_words(pytesseract, prepared, original_size, lang: str, psm: int) -> list[OcrWord]:
+def _tesseract_words(
+    pytesseract, prepared, original_size, lang: str, psm: int, min_conf: float | None = None
+) -> list[OcrWord]:
     width, height = original_size
     try:
         data = pytesseract.image_to_data(
@@ -164,6 +199,7 @@ def _tesseract_words(pytesseract, prepared, original_size, lang: str, psm: int) 
 
     scale_x = width / prepared.size[0]
     scale_y = height / prepared.size[1]
+    floor = MIN_WORD_CONF if min_conf is None else min_conf
     words = []
     for i, raw in enumerate(data["text"]):
         text = (raw or "").strip()
@@ -171,7 +207,7 @@ def _tesseract_words(pytesseract, prepared, original_size, lang: str, psm: int) 
             conf = float(data["conf"][i])
         except (TypeError, ValueError):
             conf = -1
-        if not text or conf < MIN_WORD_CONF:
+        if not text or conf < floor:
             continue
         left = int(data["left"][i]) * scale_x
         top = int(data["top"][i]) * scale_y
