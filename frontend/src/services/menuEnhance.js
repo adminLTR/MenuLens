@@ -35,50 +35,41 @@ function boxBlur(src, width, height, radius) {
 export function enhanceMenuScan(imageData) {
   const { width, height, data } = imageData;
   const n = width * height;
-  const r = new Float32Array(n);
-  const g = new Float32Array(n);
-  const b = new Float32Array(n);
   const luma = new Float32Array(n);
-
   let meanR = 0;
   let meanG = 0;
   let meanB = 0;
+
   for (let i = 0, p = 0; i < data.length; i += 4, p += 1) {
-    r[p] = data[i];
-    g[p] = data[i + 1];
-    b[p] = data[i + 2];
     luma[p] = data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114;
-    meanR += r[p];
-    meanG += g[p];
-    meanB += b[p];
+    meanR += data[i];
+    meanG += data[i + 1];
+    meanB += data[i + 2];
   }
   meanR /= n;
   meanG /= n;
   meanB /= n;
   const gray = (meanR + meanG + meanB) / 3;
+  const sr = Math.max(0.86, Math.min(1.14, gray / Math.max(meanR, 8)));
+  const sg = Math.max(0.86, Math.min(1.14, gray / Math.max(meanG, 8)));
+  const sb = Math.max(0.86, Math.min(1.14, gray / Math.max(meanB, 8)));
 
-  const sr = Math.max(0.94, Math.min(1.06, gray / Math.max(meanR, 8)));
-  const sg = Math.max(0.94, Math.min(1.06, gray / Math.max(meanG, 8)));
-  const sb = Math.max(0.94, Math.min(1.06, gray / Math.max(meanB, 8)));
-  const mix = 0.35;
-  for (let i = 0; i < n; i += 1) {
-    r[i] = r[i] * (1 - mix + mix * sr);
-    g[i] = g[i] * (1 - mix + mix * sg);
-    b[i] = b[i] * (1 - mix + mix * sb);
-    luma[i] = r[i] * 0.299 + g[i] * 0.587 + b[i] * 0.114;
-  }
-
-  const blurred = boxBlur(luma, width, height, 1);
+  const fine = boxBlur(luma, width, height, 1);
+  const local = boxBlur(luma, width, height, 4);
   const out = new ImageData(width, height);
+
   for (let i = 0, p = 0; i < out.data.length; i += 4, p += 1) {
-    const edge = Math.abs(luma[p] - blurred[p]);
-    const amount = edge > 22 ? 0.12 : 0.22;
-    const nextLuma = luma[p] + amount * (luma[p] - blurred[p]);
-    const scale = luma[p] > 1 ? nextLuma / luma[p] : 1;
-    const lifted = 0.97 * scale + 0.03;
-    out.data[i] = Math.max(0, Math.min(255, data[i] * 0.28 + r[p] * lifted * 0.72));
-    out.data[i + 1] = Math.max(0, Math.min(255, data[i + 1] * 0.28 + g[p] * lifted * 0.72));
-    out.data[i + 2] = Math.max(0, Math.min(255, data[i + 2] * 0.28 + b[p] * lifted * 0.72));
+    let r = data[i] * sr;
+    let g = data[i + 1] * sg;
+    let b = data[i + 2] * sb;
+    let y = r * 0.299 + g * 0.587 + b * 0.114;
+    y += 0.4 * (luma[p] - fine[p]);
+    y += 0.2 * (luma[p] - local[p]);
+    y = 128 + (y - 128) * 1.16;
+    const scale = luma[p] > 1 ? y / luma[p] : 1;
+    out.data[i] = Math.max(0, Math.min(255, r * scale));
+    out.data[i + 1] = Math.max(0, Math.min(255, g * scale));
+    out.data[i + 2] = Math.max(0, Math.min(255, b * scale));
     out.data[i + 3] = 255;
   }
   return out;

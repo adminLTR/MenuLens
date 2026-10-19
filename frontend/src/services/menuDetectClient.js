@@ -19,7 +19,7 @@ export function createMenuDetector() {
   };
 
   return {
-    async detect(bitmap, point, timeoutMs = 2500) {
+    async detect(bitmap, timeoutMs = 5000) {
       const id = (seq += 1);
       return new Promise((resolve) => {
         const timer = setTimeout(() => {
@@ -33,9 +33,9 @@ export function createMenuDetector() {
           resolve(corners);
         });
         try {
-          worker.postMessage({ id, bitmap, point }, [bitmap]);
+          worker.postMessage({ id, bitmap }, [bitmap]);
         } catch {
-          worker.postMessage({ id, bitmap, point });
+          worker.postMessage({ id, bitmap });
         }
       });
     },

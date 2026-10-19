@@ -5,7 +5,7 @@ import {
   startCameraFallback,
   stopStream,
 } from '../services/xr.js';
-import { prepareVideoFrame, snapshotToBlob, unprojectCoverPoint } from '../services/menuScan.js';
+import { prepareVideoFrame, snapshotToBlob } from '../services/menuScan.js';
 import { warpMenu } from '../services/menuDetect.js';
 import { createMenuDetector } from '../services/menuDetectClient.js';
 import { createMenuEnhancer } from '../services/menuEnhanceClient.js';
@@ -154,30 +154,17 @@ export class ArView extends Component {
     this.captureAtEvent(event);
   }
 
-  async captureAtEvent(event) {
+  async captureAtEvent() {
     if (this.picking) return;
-    const overlay = this.$('[data-overlay]');
     const video = this.$('[data-video]');
     const snapshot = this.$('[data-snapshot]');
     if (!video?.videoWidth) return;
 
-    const point = unprojectCoverPoint(
-      event.clientX,
-      event.clientY,
-      overlay,
-      video.videoWidth,
-      video.videoHeight,
-    );
-    if (!point) {
-      this.setStatus('Toque em cima do cardápio, na zona da imagem.');
-      return;
-    }
-
     this.picking = true;
-    this.setStatus('A procurar as bordas do cardápio…');
+    this.setStatus('Buscando el menú en la foto…');
     try {
       prepareVideoFrame(video, snapshot, { maxSide: 2000 });
-      const scale = Math.min(1, 640 / snapshot.width);
+      const scale = Math.min(1, 900 / snapshot.width);
       const width = Math.max(1, Math.round(snapshot.width * scale));
       const height = Math.max(1, Math.round(snapshot.height * scale));
       const tmp = document.createElement('canvas');
@@ -185,9 +172,9 @@ export class ArView extends Component {
       tmp.height = height;
       tmp.getContext('2d').drawImage(snapshot, 0, 0, width, height);
       const bitmap = await createImageBitmap(tmp);
-      const corners = await this.detector.detect(bitmap, point);
+      const corners = await this.detector.detect(bitmap);
       if (!corners) {
-        this.setStatus('Não encontrei as bordas. Aproxime o papel, toque no centro da folha e tente de novo.');
+        this.setStatus('No encontré el menú. Encuadre la hoja completa y toque otra vez.');
         return;
       }
       const context = snapshot.getContext('2d', { willReadFrequently: true });
