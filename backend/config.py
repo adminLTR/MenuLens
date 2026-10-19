@@ -17,3 +17,8 @@ class Config:
         "pool_pre_ping": True,
         "pool_recycle": 280,
     }
+    MAX_CONTENT_LENGTH = int(os.getenv("MAX_CONTENT_LENGTH", str(8 * 1024 * 1024)))
+    OCR_ENGINE = os.getenv("OCR_ENGINE", "tesseract")
+    OCR_LANGS = os.getenv("OCR_LANGS", "por+eng+spa")
+    OCR_MATCH_THRESHOLD = int(os.getenv("OCR_MATCH_THRESHOLD", "78"))
+    TESSERACT_CMD = os.getenv("TESSERACT_CMD", "")

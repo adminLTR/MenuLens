@@ -35,5 +35,14 @@ if __name__ == "__main__":
     # Seeders: ainda não. Entram neste ponto quando forem definidos.
     os.execvp(
         "gunicorn",
-        ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "wsgi:app"],
+        [
+            "gunicorn",
+            "--bind",
+            "0.0.0.0:5000",
+            "--workers",
+            "2",
+            "--timeout",
+            "120",
+            "wsgi:app",
+        ],
     )
