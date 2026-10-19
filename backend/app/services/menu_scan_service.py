@@ -1,10 +1,12 @@
+import json
+
 from flask import current_app
 from rapidfuzz import fuzz
 from sqlalchemy.orm import joinedload
 
 from app.extensions import db
 from app.models.dish import Dish
-from app.services.gemini_dish import enrich_dish
+from app.services.dish_knowledge import resolve_nutrition
 from app.services.ocr_engine import OcrUnavailableError, clean_dish_name, load_image, read_lines
 
 
@@ -43,16 +45,28 @@ class MenuScanService:
             )
 
         ocr_text = "\n".join(item["text"] for item in items if item.get("text")) or None
-        nutrition = enrich_dish(ocr_text) if crop and ocr_text else None
+        nutrition = None
+        nutrition_source = None
+        if crop and ocr_text:
+            nutrition, nutrition_source = resolve_nutrition(ocr_text)
+        origin = "BBDD" if nutrition_source == "mysql" else nutrition_source
         print(
-            f"[menus/scan] nutrition={nutrition.get('name') if nutrition else None}",
+            f"[menus/scan] origen={origin} ocr={ocr_text!r}",
+            flush=True,
+        )
+        print(
+            json.dumps(nutrition, ensure_ascii=False, indent=2, default=str)
+            if nutrition
+            else "null",
             flush=True,
         )
         if crop:
             return {
                 "engine": engine,
                 "menu_id": menu_id,
+                "ocr_text": ocr_text,
                 "nutrition": nutrition,
+                "nutrition_source": nutrition_source,
             }
         return {
             "engine": engine,

@@ -86,6 +86,7 @@ class DishNutrition(db.Model):
     saturated_fat_g = db.Column(db.Float)
     carbs_g = db.Column(db.Float)
     protein_g = db.Column(db.Float)
+    fiber_g = db.Column(db.Float)
     sodium_mg = db.Column(db.Float)
     source = db.Column(db.String(80), nullable=False)
     is_estimate = db.Column(db.Boolean, nullable=False, default=True)

@@ -1,6 +1,8 @@
 import os
 import subprocess
 import time
+import urllib.error
+import urllib.request
 
 from sqlalchemy import create_engine, text
 
@@ -28,10 +30,29 @@ def run_migrations():
     print("Migrações em dia.", flush=True)
 
 
+def wait_for_chroma(attempts=20, delay=2):
+    host = os.getenv("CHROMA_HOST", "chroma")
+    port = os.getenv("CHROMA_PORT", "8000")
+    url = f"http://{host}:{port}/api/v2/heartbeat"
+    last_error = None
+    for i in range(attempts):
+        try:
+            with urllib.request.urlopen(url, timeout=3) as response:
+                if 200 <= response.status < 300:
+                    print("Chroma disponível.", flush=True)
+                    return
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            last_error = exc
+            print(f"Aguardando Chroma ({i + 1}/{attempts}): {exc}", flush=True)
+            time.sleep(delay)
+    print(f"Chroma indisponível, a continuar sem índice vectorial: {last_error}", flush=True)
+
+
 if __name__ == "__main__":
     database_url = os.environ["DATABASE_URL"]
     wait_for_db(database_url)
     run_migrations()
+    wait_for_chroma()
     # Seeders: ainda não. Entram neste ponto quando forem definidos.
     os.execvp(
         "gunicorn",

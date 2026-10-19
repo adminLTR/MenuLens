@@ -1,6 +1,7 @@
 from sqlalchemy import text
 
 from app.extensions import db
+from app.services.chroma_dish import heartbeat as chroma_heartbeat
 
 
 class HealthService:
@@ -16,4 +17,8 @@ class HealthService:
         except Exception:
             payload["status"] = "degraded"
             payload["database"] = "error"
+        try:
+            payload["chroma"] = "ok" if chroma_heartbeat() else "error"
+        except Exception:
+            payload["chroma"] = "error"
         return payload

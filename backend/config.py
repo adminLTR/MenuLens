@@ -24,3 +24,8 @@ class Config:
     TESSERACT_CMD = os.getenv("TESSERACT_CMD", "")
     GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
     GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+    CHROMA_HOST = os.getenv("CHROMA_HOST", "chroma")
+    CHROMA_PORT = int(os.getenv("CHROMA_PORT", "8000"))
+    CHROMA_COLLECTION = os.getenv("CHROMA_COLLECTION", "dish_names")
+    CHROMA_MATCH_DISTANCE = float(os.getenv("CHROMA_MATCH_DISTANCE", "0.42"))
+    CHROMA_FUZZ_MIN = int(os.getenv("CHROMA_FUZZ_MIN", "72"))

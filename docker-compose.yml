@@ -14,6 +14,21 @@ services:
       timeout: 5s
       retries: 20
 
+  chroma:
+    image: chromadb/chroma:1.5.3
+    environment:
+      ANONYMIZED_TELEMETRY: "FALSE"
+    ports:
+      - "8000:8000"
+    volumes:
+      - chroma_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'echo >/dev/tcp/127.0.0.1/8000'"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
   backend:
     build: ./backend
     env_file:
@@ -28,6 +43,8 @@ services:
       - "5000:5000"
     depends_on:
       db:
+        condition: service_healthy
+      chroma:
         condition: service_healthy
 
   frontend:
@@ -44,4 +61,5 @@ services:
 
 volumes:
   mysql_data:
+  chroma_data:
   frontend_node_modules:
